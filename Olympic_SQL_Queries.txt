@@ -1,0 +1,205 @@
+--1 which team has won the maximum gold medals over the years.
+
+With goldtotal as
+(
+SELECT	
+			A.team,
+			AE.YEAR,
+			COUNT(AE.medal) AS NO_OF_MEDALS
+FROM		athletes A
+LEFT JOIN	athlete_events AE ON A.id = AE.athlete_id
+WHERE		AE.medal = 'Gold'
+GROUP BY	A.team, AE.YEAR
+)
+SELECT team,year,NO_OF_MEDALS FROM
+( 
+SELECT	
+			*,
+			ROW_NUMBER() OVER (PARTITION BY YEAR ORDER BY NO_OF_MEDALS DESC) AS RN
+FROM goldtotal 
+) C
+WHERE RN = 1
+
+--2 for each team print total silver medals and year in which they won maximum silver medal..output 3 columns team,total_silver_medals, year_of_max_silver
+
+WITH SILVERMEDALS AS
+(
+SELECT	
+			A.team,
+			AE.year,
+			COUNT(AE.medal) AS NO_OF_MEDALS,
+			ROW_NUMBER() OVER (PARTITION BY A.TEAM ORDER BY COUNT(AE.medal) DESC) AS RN,
+			SUM(COUNT(AE.medal)) OVER (PARTITION BY A.team) AS SN
+FROM		athletes A
+LEFT JOIN	athlete_events AE on A.id = AE.athlete_id
+WHERE AE.medal = 'Silver'
+GROUP BY A.team, AE.year
+)
+SELECT		team,
+			SN AS total_medals,
+			year
+
+FROM		SILVERMEDALS
+WHERE		RN = 1
+
+
+--3 which player has won maximum gold medals  amongst the players 
+--which have won only gold medal (never won silver or bronze) over the years
+
+
+WITH CTE AS 
+(
+SELECT		
+			id,
+			name,
+			AE.MEDAL,
+			CASE WHEN AE.MEDAL = 'Gold'then 1 else 0 end as gold,
+			CASE WHEN AE.MEDAL = 'Silver'then 1 else 0 end as silver,
+			CASE WHEN AE.MEDAL = 'Bronze'then 1 else 0 end as Bronze
+		--	CASE WHEN AE.MEDAL IN ('Gold', 'Silver') then  else 0 end as GS
+FROM		athletes A
+LEFT JOIN	athlete_events AE ON A.id = AE.athlete_id
+WHERE AE.medal <> 'NA'
+)
+
+SELECT id, name ,sum(gold) as G ,sum(silver) AS S ,sum(Bronze) AS B FROM CTE 
+group by id, name
+HAVING sum(silver) = 0 and sum(Bronze) = 0
+ORDER BY sum(gold) DESC
+
+--4 in each year which player has won maximum gold medal . Write a query to print year,player name 
+--and no of golds won in that year . In case of a tie print comma separated player names.
+
+WITH CTE AS 
+(
+SELECT		
+			AE.year,
+			name,
+			--AE.medal,
+			COUNT(AE.MEDAL) AS TOTAL_GOLD
+			--ROW_NUMBER() OVER (PARTITION BY AE.MEDAL ORDER BY AE.YEAR) RN
+FROM		athletes A
+LEFT JOIN	athlete_events AE ON A.id = AE.athlete_id
+WHERE AE.medal = 'GOLD'
+GROUP BY AE.year,
+			name
+			--AE.medal
+
+)
+SELECT 
+		YEAR,
+		STRING_AGG(NAME,',') new,
+		TOTAL_GOLD
+FROM
+(
+SELECT		
+			YEAR,
+			name,
+			total_gold,
+			DENSE_RANK() OVER (PARTITION BY YEAR ORDER BY TOTAL_GOLD DESC ) AS SM
+FROM		CTE
+) A
+WHERE SM = 1
+group by year,TOTAL_GOLD
+
+
+--5 in which event and year India has won its first gold medal,first silver medal and first bronze medal
+--print 3 columns medal,year,sport
+
+WITH CTE AS
+(
+SELECT		
+			AE.year,
+			A.team,
+			AE.sport,
+			AE.medal,
+			ROW_NUMBER() over (partition by ae.medal order by ae.year asc) RN 
+FROM		athletes A
+LEFT JOIN	athlete_events AE ON A.id = AE.athlete_id
+WHERE		A.team = 'India' and ae.medal <> 'NA'
+)
+SELECT		
+			MEDAL,
+			YEAR,
+			SPORT
+FROM		CTE
+WHERE		RN = 1
+
+
+--6 find players who won gold medal in summer and winter olympics both.
+
+
+WITH CTE AS
+(
+SELECT		
+			A.name,
+			AE.medal,
+			--STRING_AGG(AE.season,',') as season_new
+			case when season = 'summer' then 1 else 0 end as summer_winner,
+			case when season = 'winter' then 1  else 0 end as winter_winner
+			FROM		athletes A
+LEFT JOIN	athlete_events AE ON A.id = AE.athlete_id
+WHERE		season IN ('Summer','Winter') and medal = 'gold'
+)
+SELECT		
+			name,
+			sum(summer_winner) as ssm,
+			sum(winter_winner) as wsm
+FROM		CTE
+group by name
+having sum(summer_winner) >= 1 and sum(winter_winner) >=1
+
+--7 find players who won gold, silver and bronze medal in a single olympics. print player name along with year.
+
+with cte as
+(
+SELECT	
+			AE.year,
+			A.name,
+			AE.medal,
+			case when medal = 'gold' then 1 else 0 end as gold_win,
+			case when medal = 'silver' then 1 else 0 end as silver_win,
+			case when medal = 'bronze' then 1 else 0 end as bronze_win
+FROM		athletes A
+LEFT JOIN	athlete_events AE ON A.id = AE.athlete_id
+WHERE		AE.medal <> 'NA'
+)
+SELECT		
+			year,
+			name,
+			SUM(gold_win) AS GW,
+			SUM(silver_win) AS SW,
+			SUM(bronze_win) AS BW
+FROM		cte
+GROUP BY	year, name
+having		SUM(gold_win)	>= 1 and
+			SUM(silver_win) >= 1 and
+			SUM(bronze_win)	>= 1
+ORDER BY YEAR ASC
+
+
+
+--8 find players who have won gold medals in consecutive 3 summer olympics in the same event . Consider only olympics 2000 onwards. 
+--Assume summer olympics happens every 4 year starting 2000. print player name and event name.
+
+WITH CTE AS 
+(
+	SELECT
+	A.name,
+	AE.event,
+	AE.medal,
+	AE.year
+	FROM athletes A
+	LEFT JOIN athlete_events AE ON A.id = AE.athlete_id
+	WHERE AE.medal = 'Gold' and ae.year >= 2000 and season = 'summer'
+)
+SELECT * FROM
+(
+	SELECT 
+	*,
+	LAG(YEAR,1) OVER(PARTITION BY NAME,EVENT ORDER BY YEAR) AS PREV_YEAR,
+	LEAD(YEAR,1) OVER(PARTITION BY NAME,EVENT ORDER BY YEAR) AS NEXT_YEAR
+	
+	FROM CTE
+) A
+WHERE YEAR = PREV_YEAR + 4 AND YEAR = NEXT_YEAR - 4
